@@ -1,37 +1,34 @@
-# Deployment review handoff
+# Deployment review handoff — not deployed
 
-Upstream: alasano/gpt-image-playground commit 47f6f95fb7ea0b20a997eba9f51a4f1f82cf6798.
+Independent re-review is required before any Aliyun deployment/build action. No service, container, ingress, credentials, or target config has been changed by these fixes.
 
-## Verified locally
+## Approved architecture
 
-- Node 24.20.0 on Toshiba and Aliyun; both x86_64.
-- Toshiba build succeeded with Next.js 16.4.2; typecheck and ESLint passed.
-- npm audit --omit=dev: zero vulnerabilities after lockfile update (upstream lockfile had critical Next.js and high sharp/source-map-js advisories).
-- Development dependency audit still reports five high-severity transitive braces/micromatch/fast-glob/Next ESLint findings. Do not use audit fix --force: it proposes an incompatible Next ESLint downgrade.
-- Aliyun has ~453 MiB available RAM at inspection. Build on Toshiba, deploy standalone Node artifact via systemd (not a second Docker daemon workload).
-- Existing image.aesthmed.cn OpenLiteSpeed proxy targets 127.0.0.1:3008 with 300-second init timeout, valid certificate paths and HTTP-to-HTTPS redirect. No ingress files changed.
-- Port 3008 was unused. Existing NewAPI container not modified.
+Docker Compose is mandatory. Entire clone/build/runtime workflow must happen on **Aliyun first**. Do not build on Toshiba and transfer images. If measured resources cannot support a bounded build without threatening existing production workloads, stop and report; only then, with approval, move the entire clone/build/runtime to Toshiba and use Aliyun reverse forwarding. Local developer build/test is code verification, not the deployment build.
 
-## Security changes requiring independent review
+Use the committed multi-stage `Dockerfile` (Node 24 standalone Next output) and `compose.yaml`. Runtime is UID/GID 10001, read-only root filesystem, writable image bind only, all capabilities dropped, loopback mapping `127.0.0.1:3008:3000`. Secrets are runtime-only `shared/app.env` (root-owned 0600), excluded from Docker context. Do not print `docker compose config`, environment contents, or process environments: these may disclose secrets. No native/systemd service is delivered.
 
-- Default model changed to gpt-image-2.5-sunburst.
-- Upstream generation/deletion password checks already exist. Download route was unauthenticated; patched to require HttpOnly Secure SameSite=Strict signed cookie.
-- New /api/session exchanges existing passwordHash for cookie; page rehydrates session from the existing localStorage hash and obtains it when saving password.
-- Download filenames restricted to generated image filename pattern and private/no-store/nosniff headers added.
-- No user-controlled remote URL fetch exists in app API: image edits use binary uploads; generation expects base64 output. Next.js upgraded to fix Image Optimization SSRF advisory.
-- API key remains server-only. Existing upstream localStorage hash is a replayable bearer credential (shared-password architecture, not user isolation); rotating APP_PASSWORD invalidates both hash and download cookie.
-- Cookie refresh is on page load/password save; after 24h without reload, download cookie expires. Shared browser history is not cross-device server history.
+## Preflight and build gate — after independent approval only
 
-## Runtime approval blocker
+1. On Aliyun inspect current available RAM, swap, disk, load, existing production container memory/limits and Docker/Compose/BuildKit support. Previous ~453 MiB available was only a point-in-time observation, not proof a build can/cannot fit. Recheck port 3008 and existing OpenLiteSpeed proxy; do not alter unrelated NewAPI or ingress.
+2. Decide a bounded BuildKit worker/container memory/CPU budget with headroom reserved for existing workloads; verify that this Docker/BuildKit version actually enforces it. Do not assume `docker build --memory` is enforced by BuildKit. If no enforceable safe budget is available, STOP and report rather than attempt an unbounded build. Observe host available memory and existing service health throughout; kill only the app build if reserve is breached. No speculative 256 MiB runtime cap.
+3. Clone the reviewed commit into the app-scoped `/opt/gpt-image-playground` tree on Aliyun. Build there with a release-specific image tag and the verified bounded builder. Neither API keys nor passwords belong in build args. Dockerfile placeholders are compile-time only. Run tests/typecheck/lint before packaging.
+4. Provision `/opt/gpt-image-playground/shared` root:10001 0750 and `shared/generated-images` 10001:10001 0700; parent traversal must remain allowed. Create `shared/app.env` root:root 0600 using a secure secret channel, with nonempty APP_PASSWORD, OPENAI_API_KEY, OPENAI_API_BASE_URL=https://newapi.aesthmed.cn/v1. The Docker entrypoint exits before loading server.js if APP_PASSWORD is empty/whitespace/missing; instrumentation additionally guards the app runtime. Instrumentation alone is not an exit guarantee in this Next.js version (observed error logs with process still listening). Generate real secrets only after approval; never print them.
+5. Use the release tag through IMAGE_PLAYGROUND_IMAGE and `docker compose up -d --no-build`. Compose intentionally contains no automatic build step. The runtime image stores files at IMAGE_STORAGE_DIR=/app/generated-images, consistently used by generation/download/deletion and mounted to the persistent bind. `create_host_path: false` prevents an accidental root-owned auto-created directory.
 
-The first state-changing SSH deployment command was intercepted with pending_approval: `overwrite system file via tee`. It did not execute. As of last readback, /opt/gpt-image-playground did not exist and systemd service was inactive. Do not claim production deployed or functionality verified. No credentials were generated or delivered.
+## Security fixes and automated coverage
 
-## Approved deployment target and remaining checks
+- Generation/deletion require the HttpOnly session cookie **before body consumption**; body passwordHash is no longer accepted as request auth. Cookie path is `/api`, SameSite Strict, Secure in production. Shared-password hash remains a replayable session-exchange credential (not per-user isolation).
+- Randomized HMAC session tokens carry a signed expiration checked server-side with constant-time signature comparison; TTL 24h, rotation invalidates sessions. Page/password-save renew session; after expiry authenticate again.
+- Actual stream bytes are capped, including missing/chunked/lying Content-Length: image request 12 MiB total, each file 10 MiB, JSON 16 KiB, body deadline 15s. One image operation per process (including SSE body lifetime), four concurrent JSON readers. These admission limits are conservative, not proof of safe total RSS. Use one app process/container unless aggregate budgets are re-reviewed.
+- New mask strokes invalidate saved masks; unsaved strokes block submit even if a stale file exists; obsolete async canvas-save callbacks are rejected by revision.
+- `npm test` executes route tests, stream counting/cancellation/timeouts/admission tests, signed expiry/null JSON/fail-closed tests, and actual extracted component-handler regressions without a browser. No billable upstream calls are made by these tests.
+- Existing development dependency audit has five high-severity transitive findings; do not apply incompatible `npm audit fix --force`. Recheck production-only audit separately.
 
-Use /opt/gpt-image-playground/releases/<release>/ plus current symlink, shared/app.env (root-owned 0600), shared/generated-images (gptimage-owned 0700). IMPORTANT: shared parent directory must be root:gptimage 0750 (not root-only 0700), so the service can traverse to generated-images. Service unit is deploy/gpt-image-playground.service.
+## Acceptance after build and approval
 
-Set server-only OPENAI_API_BASE_URL=https://newapi.aesthmed.cn/v1, securely reuse custom_providers[name=Newapi.aesthmed.cn].api_key from ~/.hermes/config.yaml without logging. Generate APP_PASSWORD with cryptographic randomness; deliver only via restricted ~/.hermes/credentials/image-playground-login.txt (0600). No password currently exists.
+Verify missing-password container exits; nonroot write/read/delete through bind with read-only root; HTTPS UI/assets; passwordRequired=true; unauthorized generate/delete/download; valid/expired session behavior; 413 chunked body; 429 concurrency; image survives recreate. Measure peak RSS and available host memory during realistic authorized generation and reference edit. At most two billable requests; selective PNG mask must preserve outside-selection pixels, not merely return HTTP200. If memory is inadequate, stop and report before moving hosts. No RAM safety or model mask-semantics claim is established by local tests.
 
-Build: OPENAI_API_KEY=build-placeholder NEXT_TELEMETRY_DISABLED=1 npm run build. Copy public/ and .next/static into .next/standalone before packaging. Deploy standalone artifact (includes production dependencies), run as dedicated gptimage user via provided service with loopback hostname and port3008. Avoid printing env files or inspecting process environments into chat.
+## Portability / later Toshiba migration
 
-After approval: verify service active and loopback binding; HTTPS UI and loaded JS; passwordRequired=true; unauthorized generation/delete/download/session rejected; valid session cookie download; authenticated harmless generation and reference edit with selective PNG mask (at most two billable requests). Check mask preservation separately from HTTP200 acceptance. Verify file persistence and authenticated deletion. Inspect logs for errors and confirm NewAPI unchanged. Parent must independently review changes before final acceptance.
+Use the same reviewed image recipe and Compose file, building on the destination as approved. Stop writes, cold-copy shared/generated-images preserving numeric UID/GID/modes plus transfer app.env securely, restore permissions, start and verify persistence/auth. Browser history is localStorage/IndexedDB, not server history, and must be exported separately if needed. Keep the old host stopped but intact for rollback. Aliyun forwarding changes require separate approval and must not expose port3008 publicly.

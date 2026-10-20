@@ -1,0 +1,32 @@
+name: gpt-image-playground
+services:
+  app:
+    image: ${IMAGE_PLAYGROUND_IMAGE:-gpt-image-playground:review}
+    ports:
+      - "127.0.0.1:3008:3000"
+    env_file:
+      - ./shared/app.env
+    environment:
+      NODE_ENV: production
+      IMAGE_STORAGE_DIR: /app/generated-images
+      NEXT_PUBLIC_IMAGE_STORAGE_MODE: fs
+    volumes:
+      - type: bind
+        source: ./shared/generated-images
+        target: /app/generated-images
+        bind:
+          create_host_path: false
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    restart: unless-stopped
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

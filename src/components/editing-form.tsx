@@ -21,6 +21,7 @@ import {
     type ImageQuality
 } from '@/lib/models';
 import { validateCustomSize, type SizePreset } from '@/lib/size-utils';
+import { hasUnsavedMask } from '@/lib/mask-state';
 import { Upload, Eraser, Save, Loader2, X, ScanEye, UploadCloud, Lock, LockOpen, HelpCircle } from 'lucide-react';
 import Image from 'next/image';
 import * as React from 'react';
@@ -173,6 +174,7 @@ export function EditingForm({
     const canvasRef = React.useRef<HTMLCanvasElement>(null);
     const visualFeedbackCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
     const isDrawing = React.useRef(false);
+    const maskRevision = React.useRef(0);
     const lastPos = React.useRef<{ x: number; y: number } | null>(null);
     const maskInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -192,6 +194,7 @@ export function EditingForm({
         queueMicrotask(() => {
             if (cancelled) return;
 
+            maskRevision.current++;
             setEditGeneratedMaskFile(null);
             setEditIsMaskSaved(false);
             setEditOriginalImageSize(null);
@@ -268,6 +271,8 @@ export function EditingForm({
 
     const addPoint = (x: number, y: number) => {
         setEditDrawnPoints((prevPoints) => [...prevPoints, { x, y, size: editBrushSize[0] }]);
+        maskRevision.current++;
+        setEditGeneratedMaskFile(null);
         setEditIsMaskSaved(false);
         setEditMaskPreviewUrl(null);
     };
@@ -314,6 +319,7 @@ export function EditingForm({
     };
 
     const handleClearMask = () => {
+        maskRevision.current++;
         setEditDrawnPoints([]);
         setEditGeneratedMaskFile(null);
         setEditIsMaskSaved(false);
@@ -350,7 +356,9 @@ export function EditingForm({
             setEditMaskPreviewUrl(null);
         }
 
+        const revision = maskRevision.current;
         offscreenCanvas.toBlob((blob) => {
+            if (revision !== maskRevision.current) return;
             if (blob) {
                 const maskFile = new File([blob], 'generated-mask.png', { type: 'image/png' });
                 setEditGeneratedMaskFile(maskFile);
@@ -466,7 +474,7 @@ export function EditingForm({
             alert('Please select at least one image to edit.');
             return;
         }
-        if (editDrawnPoints.length > 0 && !editGeneratedMaskFile && !editIsMaskSaved) {
+        if (hasUnsavedMask(editDrawnPoints.length, editIsMaskSaved)) {
             alert('Please save the mask you have drawn before submitting.');
             return;
         }

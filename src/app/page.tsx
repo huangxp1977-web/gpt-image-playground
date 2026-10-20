@@ -493,8 +493,8 @@ export default function HomePage() {
             editImageFiles.forEach((file, index) => {
                 apiFormData.append(`image_${index}`, file, file.name);
             });
-            if (editGeneratedMaskFile) {
-                apiFormData.append('mask', editGeneratedMaskFile, editGeneratedMaskFile.name);
+            if (editData.maskFile) {
+                apiFormData.append('mask', editData.maskFile, editData.maskFile.name);
             }
         }
 

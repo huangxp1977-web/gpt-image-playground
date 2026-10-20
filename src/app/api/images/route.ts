@@ -7,7 +7,9 @@ import {
     type ImageOutputFormat,
     type ImageQuality
 } from '@/lib/models';
-import crypto from 'crypto';
+import { authorizedImageRequest } from '@/lib/image-session';
+import { outputDir } from '@/lib/image-storage';
+import { admitImage, boundedBody, IMAGE_BODY_LIMIT, IMAGE_FILE_LIMIT, requestError, releaseWithResponse, RequestLimitError } from '@/lib/request-limits';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
@@ -37,7 +39,7 @@ const openai = new OpenAI({
     baseURL: process.env.OPENAI_API_BASE_URL
 });
 
-const outputDir = path.resolve(process.cwd(), 'generated-images');
+
 
 // Validate and normalize output format
 function validateOutputFormat(format: unknown): ImageOutputFormat {
@@ -83,7 +85,7 @@ async function ensureOutputDirExists() {
     } catch (error: unknown) {
         if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
             try {
-                await fs.mkdir(outputDir, { recursive: true });
+                await fs.mkdir(outputDir, { recursive: true, mode: 0o700 });
                 console.log(`Created output directory: ${outputDir}`);
             } catch (mkdirError) {
                 console.error(`Error creating output directory ${outputDir}:`, mkdirError);
@@ -98,11 +100,15 @@ async function ensureOutputDirExists() {
     }
 }
 
-function sha256(data: string): string {
-    return crypto.createHash('sha256').update(data).digest('hex');
+export async function POST(request: NextRequest) {
+    if (!authorizedImageRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    let release;
+    try { release = admitImage(); } catch (error) { return requestError(error); }
+    try { return releaseWithResponse(await handlePOST(request), release); }
+    catch (error) { release(); return requestError(error); }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
     console.log('Received POST request to /api/images');
 
     if (!process.env.OPENAI_API_KEY) {
@@ -131,18 +137,13 @@ export async function POST(request: NextRequest) {
             await ensureOutputDirExists();
         }
 
-        const formData = await request.formData();
-
-        if (process.env.APP_PASSWORD) {
-            const clientPasswordHash = formData.get('passwordHash') as string | null;
-            if (!clientPasswordHash) {
-                console.error('Missing password hash.');
-                return NextResponse.json({ error: 'Unauthorized: Missing password hash.' }, { status: 401 });
-            }
-            const serverPasswordHash = sha256(process.env.APP_PASSWORD);
-            if (clientPasswordHash !== serverPasswordHash) {
-                console.error('Invalid password hash.');
-                return NextResponse.json({ error: 'Unauthorized: Invalid password.' }, { status: 401 });
+        const body = await boundedBody(request, IMAGE_BODY_LIMIT);
+        let formData: FormData;
+        try { formData = await new Response(body).formData(); }
+        catch { throw new RequestLimitError('Invalid multipart form body.', 400); }
+        for (const value of formData.values()) {
+            if (value instanceof File && value.size > IMAGE_FILE_LIMIT) {
+                throw new RequestLimitError('Each uploaded image or mask must be at most 10 MiB (12 MiB total request).', 413);
             }
         }
 
@@ -186,6 +187,7 @@ export async function POST(request: NextRequest) {
                 const timestamp = Date.now();
 
                 const readableStream = new ReadableStream({
+                    cancel() { stream.controller.abort(); },
                     async start(controller) {
                         try {
                             const completedImages: Array<{
@@ -251,6 +253,7 @@ export async function POST(request: NextRequest) {
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify(doneEvent)}\n\n`));
                             controller.close();
                         } catch (error) {
+                            if (stream.controller.signal.aborted) return;
                             console.error('Streaming error:', error);
                             const errorEvent: StreamingEvent = {
                                 type: 'error',
@@ -316,6 +319,7 @@ export async function POST(request: NextRequest) {
                 const timestamp = Date.now();
 
                 const readableStream = new ReadableStream({
+                    cancel() { stream.controller.abort(); },
                     async start(controller) {
                         try {
                             const completedImages: Array<{
@@ -381,6 +385,7 @@ export async function POST(request: NextRequest) {
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify(doneEvent)}\n\n`));
                             controller.close();
                         } catch (error) {
+                            if (stream.controller.signal.aborted) return;
                             console.error('Streaming edit error:', error);
                             const errorEvent: StreamingEvent = {
                                 type: 'error',

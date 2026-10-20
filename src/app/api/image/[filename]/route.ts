@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 
 // Base directory where images are stored (outside nextjs-app)
-const imageBaseDir = path.resolve(process.cwd(), 'generated-images');
+import { outputDir as imageBaseDir } from '@/lib/image-storage';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ filename: string }> }) {
     if (!authorizedImageRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

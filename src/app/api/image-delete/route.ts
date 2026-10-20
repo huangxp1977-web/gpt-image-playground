@@ -1,13 +1,9 @@
-import crypto from 'crypto';
+import { authorizedImageRequest } from '@/lib/image-session';
+import { outputDir } from '@/lib/image-storage';
+import { admitJSON, boundedJSON, requestError } from '@/lib/request-limits';
 import fs from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
-
-const outputDir = path.resolve(process.cwd(), 'generated-images');
-
-function sha256(data: string): string {
-    return crypto.createHash('sha256').update(data).digest('hex');
-}
 
 type DeleteRequestBody = {
     filenames: string[];
@@ -23,31 +19,16 @@ type FileDeletionResult = {
 export async function POST(request: NextRequest) {
     console.log('Received POST request to /api/image-delete');
 
+    if (!authorizedImageRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    let release;
+    try { release = admitJSON(); } catch (error) { return requestError(error); }
     let requestBody: DeleteRequestBody;
     try {
-        // Clone the request to read the body for auth, then allow the original request to be read again
-        const clonedRequest = request.clone();
-        const tempBodyForAuth = await clonedRequest.json();
-
-        if (process.env.APP_PASSWORD) {
-            const clientPasswordHash = tempBodyForAuth.passwordHash as string | null;
-
-            if (!clientPasswordHash) {
-                console.error('Missing password hash for delete operation.');
-                return NextResponse.json({ error: 'Unauthorized: Missing password hash.' }, { status: 401 });
-            }
-            const serverPasswordHash = sha256(process.env.APP_PASSWORD);
-            if (clientPasswordHash !== serverPasswordHash) {
-                console.error('Invalid password hash for delete operation.');
-                return NextResponse.json({ error: 'Unauthorized: Invalid password.' }, { status: 401 });
-            }
-        }
-        // Now read the original request body for processing
-        requestBody = await request.json();
-    } catch (e) {
-        console.error('Error parsing request body for /api/image-delete:', e);
-        return NextResponse.json({ error: 'Invalid request body: Must be JSON.' }, { status: 400 });
-    }
+        const body = await boundedJSON(request);
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Expected JSON object' }, { status: 400 });
+        requestBody = body as DeleteRequestBody;
+    } catch (error) { return requestError(error); }
+    finally { release(); }
 
     const { filenames } = requestBody;
 
