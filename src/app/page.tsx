@@ -221,7 +221,9 @@ export default function HomePage() {
 
             const storedHash = localStorage.getItem('clientPasswordHash');
             if (storedHash) {
-                setClientPasswordHash(storedHash);
+                fetch('/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passwordHash: storedHash }) })
+                    .then((r) => { if (r.ok) setClientPasswordHash(storedHash); })
+                    .catch(console.error);
             }
         });
 
@@ -321,6 +323,8 @@ export default function HomePage() {
         }
         try {
             const hash = await sha256Client(password);
+            const session = await fetch('/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passwordHash: hash }) });
+            if (!session.ok) throw new Error('Invalid password');
             localStorage.setItem('clientPasswordHash', hash);
             setClientPasswordHash(hash);
             setError(null);

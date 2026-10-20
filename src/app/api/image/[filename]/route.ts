@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { authorizedImageRequest } from '@/lib/image-session';
 import { lookup } from 'mime-types';
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
@@ -7,6 +8,7 @@ import path from 'path';
 const imageBaseDir = path.resolve(process.cwd(), 'generated-images');
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ filename: string }> }) {
+    if (!authorizedImageRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { filename } = await params;
 
     if (!filename) {
@@ -14,7 +16,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     // Basic security: Prevent directory traversal
-    if (filename.includes('..') || filename.startsWith('/') || filename.startsWith('\\')) {
+    if (!/^\d+-\d+\.(png|jpeg|webp)$/.test(filename)) {
         return NextResponse.json({ error: 'Invalid filename' }, { status: 400 });
     }
 
@@ -31,6 +33,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             status: 200,
             headers: {
                 'Content-Type': contentType,
+                'Cache-Control': 'private, no-store',
+                'X-Content-Type-Options': 'nosniff',
                 'Content-Length': fileBuffer.length.toString()
             }
         });
