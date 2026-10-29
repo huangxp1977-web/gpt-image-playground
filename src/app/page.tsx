@@ -324,7 +324,10 @@ export default function HomePage() {
         try {
             const hash = await sha256Client(password);
             const session = await fetch('/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passwordHash: hash }) });
-            if (!session.ok) throw new Error('Invalid password');
+            if (!session.ok) {
+                setError(session.status === 401 ? 'Incorrect application password.' : session.status === 403 ? 'Login blocked by server origin settings. Please contact the administrator.' : 'Login request failed. Please try again.');
+                return;
+            }
             localStorage.setItem('clientPasswordHash', hash);
             setClientPasswordHash(hash);
             setError(null);

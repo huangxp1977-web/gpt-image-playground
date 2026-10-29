@@ -21,6 +21,28 @@ function request(body?: BodyInit | null, cookie = true, headers: Record<string, 
         // Node requires duplex for streaming request bodies.
         ...{ duplex: 'half' }, headers: { ...(cookie ? { cookie: `image-session=${imageSessionToken()}` } : {}), ...headers } });
 }
+test('session accepts configured public origin behind proxy and rejects foreign origins', async () => {
+    const previous = process.env.APP_ORIGIN;
+    process.env.APP_ORIGIN = 'https://image.example.com';
+    const passwordHash = crypto.createHash('sha256').update(process.env.APP_PASSWORD!).digest('hex');
+    try {
+        for (const [origin, hash, expected] of [
+            ['https://image.example.com', passwordHash, 200],
+            ['https://evil.example', passwordHash, 403],
+            ['https://image.example.com', '0'.repeat(64), 401],
+        ] as const) {
+            const response = await session(new NextRequest('http://0.0.0.0:3000/api/session', {
+                method: 'POST', headers: { origin, 'content-type': 'application/json', 'x-forwarded-host': 'evil.example' },
+                body: JSON.stringify({ passwordHash: hash }),
+            }));
+            assert.equal(response.status, expected);
+        }
+        process.env.APP_ORIGIN = 'not-a-url';
+        assert.equal((await session(new NextRequest('http://localhost/api/session', { method: 'POST' }))).status, 403);
+    } finally {
+        if (previous === undefined) delete process.env.APP_ORIGIN; else process.env.APP_ORIGIN = previous;
+    }
+});
 test('images and delete reject unauthenticated before touching any body parser/stream', async () => {
     for (const route of [images, remove]) {
         let reads = 0;

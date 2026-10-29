@@ -4,7 +4,17 @@ import { admitJSON, boundedJSON, requestError } from '@/lib/request-limits';
 
 export async function POST(request: NextRequest) {
     const origin = request.headers.get('origin');
-    if (origin && origin !== request.nextUrl.origin) return NextResponse.json({ error: 'Forbidden origin' }, { status: 403 });
+    let expectedOrigin = request.nextUrl.origin;
+    if (process.env.APP_ORIGIN !== undefined) {
+        try {
+            const configured = new URL(process.env.APP_ORIGIN);
+            if (!['http:', 'https:'].includes(configured.protocol) || configured.username || configured.password || configured.pathname !== '/' || configured.search || configured.hash) throw new Error('Invalid APP_ORIGIN');
+            expectedOrigin = configured.origin;
+        } catch {
+            return NextResponse.json({ error: 'Invalid server origin configuration' }, { status: 403 });
+        }
+    }
+    if (origin && origin !== expectedOrigin) return NextResponse.json({ error: 'Forbidden origin' }, { status: 403 });
     let release;
     try { release = admitJSON(); } catch (error) { return requestError(error); }
     try {
