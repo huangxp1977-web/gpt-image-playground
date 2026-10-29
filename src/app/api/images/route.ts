@@ -139,7 +139,7 @@ async function handlePOST(request: NextRequest) {
 
         const body = await boundedBody(request, IMAGE_BODY_LIMIT);
         let formData: FormData;
-        try { formData = await new Response(body).formData(); }
+        try { formData = await new Response(body, { headers: { 'content-type': request.headers.get('content-type') || '' } }).formData(); }
         catch { throw new RequestLimitError('Invalid multipart form body.', 400); }
         for (const value of formData.values()) {
             if (value instanceof File && value.size > IMAGE_FILE_LIMIT) {
