@@ -5,14 +5,14 @@ services:
     ports:
       - "127.0.0.1:3008:3000"
     env_file:
-      - ./shared/app.env
+      - ./app.env
     environment:
       NODE_ENV: production
       IMAGE_STORAGE_DIR: /app/generated-images
       NEXT_PUBLIC_IMAGE_STORAGE_MODE: fs
     volumes:
       - type: bind
-        source: ./shared/generated-images
+        source: ./generated-images
         target: /app/generated-images
         bind:
           create_host_path: false
@@ -20,8 +20,9 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=32m,mode=1777
+      - /app/.next/cache:uid=10001,gid=10001,mode=0700,size=64m
     cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+    security_opt: ["no-new-privileges:true"]
     init: true
     restart: unless-stopped
     pids_limit: 128

@@ -42,3 +42,7 @@ next-env.d.ts
 
 # generated images
 generated-images/
+
+# runtime credentials and persistent deployment data
+/shared/
+app.env

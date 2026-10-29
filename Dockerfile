@@ -1,6 +1,6 @@
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1 NEXT_PUBLIC_IMAGE_STORAGE_MODE=fs
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
@@ -9,7 +9,7 @@ RUN OPENAI_API_KEY=build-placeholder APP_PASSWORD=build-placeholder npm run buil
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000 IMAGE_STORAGE_DIR=/app/generated-images
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 NEXT_PUBLIC_IMAGE_STORAGE_MODE=fs HOSTNAME=0.0.0.0 PORT=3000 IMAGE_STORAGE_DIR=/app/generated-images
 RUN groupadd --gid 10001 gptimage && useradd --uid 10001 --gid 10001 --no-create-home gptimage \
     && mkdir /app/generated-images && chown 10001:10001 /app/generated-images && chmod 0700 /app/generated-images
 COPY --from=build --chown=10001:10001 /app/.next/standalone ./

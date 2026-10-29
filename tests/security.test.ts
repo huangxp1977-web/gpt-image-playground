@@ -31,6 +31,17 @@ test('images and delete reject unauthenticated before touching any body parser/s
         assert.equal(result.status, 401); assert.equal(reads, 0);
     }
 });
+test('image route preserves mixed-case multipart boundaries', async () => {
+    const boundary = 'TestBoundaryAbCdEf';
+    const body = [
+        `--${boundary}\r\nContent-Disposition: form-data; name="mode"\r\n\r\ngenerate\r\n`,
+        `--${boundary}\r\nContent-Disposition: form-data; name="prompt"\r\n\r\nhello\r\n`,
+        `--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\ninvalid-test-model\r\n`,
+        `--${boundary}--\r\n`
+    ].join('');
+    const response = await images(request(body, true, { 'content-type': `multipart/form-data; boundary=${boundary}` }));
+    assert.equal(response.status, 400); assert.deepEqual(await response.json(), { error: 'Unsupported model: invalid-test-model' });
+});
 test('image route rejects a file above 10 MiB even within the total body bound', async () => {
     const form = new FormData();
     form.set('image_0', new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'big.png', { type: 'image/png' }));
