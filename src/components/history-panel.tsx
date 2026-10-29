@@ -1,6 +1,7 @@
 'use client';
 
 import type { HistoryMetadata } from '@/app/page';
+import { ImagePreview } from '@/components/image-preview';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -380,6 +381,21 @@ function HistoryPanelImpl({
                                         )}
                                     </div>
 
+                                    <div className='space-y-1 border-x border-white/10 px-2 py-2'>
+                                        {item.images.map((image, imageIndex) => {
+                                            const previewSource = originalStorageMode === 'fs'
+                                                ? `/api/image/${encodeURIComponent(image.filename)}`
+                                                : originalStorageMode === 'indexeddb' ? getImageSrc(image.filename) : undefined;
+                                            return previewSource ? (
+                                                <ImagePreview key={`${image.filename}-${imageIndex}`} src={previewSource}
+                                                    filename={image.filename} alt={image.filename} />
+                                            ) : (
+                                                <p key={`${image.filename}-${imageIndex}`} className='break-all text-sm text-neutral-400'>
+                                                    {image.filename}: Image unavailable
+                                                </p>
+                                            );
+                                        })}
+                                    </div>
                                     <div className='space-y-1 rounded-b-md border border-t-0 border-neutral-700 bg-black p-2 text-xs text-white/60'>
                                         <p title={`Generated on: ${new Date(item.timestamp).toLocaleString()}`}>
                                             <span className='font-medium text-white/80'>Time:</span>{' '}

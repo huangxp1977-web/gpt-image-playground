@@ -1,5 +1,6 @@
 'use client';
 
+import { ImagePreview } from '@/components/image-preview';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Loader2, Send, Grid } from 'lucide-react';
@@ -128,8 +129,11 @@ export function ImageOutput({
                         <div
                             className={`grid ${getGridColsClass(imageBatch.length)} max-h-full w-full max-w-full gap-1 p-1`}>
                             {imageBatch.map((img, index) => (
-                                <div
+                                <ImagePreview
                                     key={img.filename}
+                                    src={img.path}
+                                    filename={img.filename}
+                                    alt={`Generated image ${index + 1}`}
                                     className='relative aspect-square overflow-hidden rounded border border-white/10'>
                                     <Image
                                         src={img.path}
@@ -139,18 +143,24 @@ export function ImageOutput({
                                         sizes='(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw'
                                         unoptimized
                                     />
-                                </div>
+                                </ImagePreview>
                             ))}
                         </div>
                     ) : imageBatch[viewMode] ? (
-                        <Image
+                        <ImagePreview
                             src={imageBatch[viewMode].path}
+                            filename={imageBatch[viewMode].filename}
                             alt={altText}
-                            width={512}
-                            height={512}
-                            className='max-h-full max-w-full object-contain'
-                            unoptimized
-                        />
+                            className='relative flex max-h-full max-w-full items-center justify-center'>
+                            <Image
+                                src={imageBatch[viewMode].path}
+                                alt={altText}
+                                width={512}
+                                height={512}
+                                className='max-h-full max-w-full object-contain'
+                                unoptimized
+                            />
+                        </ImagePreview>
                     ) : (
                         <div className='text-center text-white/40'>
                             <p>Error displaying image.</p>
